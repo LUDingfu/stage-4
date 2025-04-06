@@ -17,19 +17,40 @@ const Status createHeapFile(const string fileName)
     {
 		// file doesn't exist. First create it and allocate
 		// an empty header page and data page.
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
+	
+		// create a db level file bycalling db->createfile()
+        status = db.createFile(fileName);
+        // allocate an empty page by invoking bm->allocPage() appropriately, and 
+        // allocPage() will return a pointer to an empty page in the buffer pool along with the pagenumber of the page
+        status = bufMgr->allocPage(file, hdrPageNo, hdrPage);
+        if (status != OK)
+        {
+            cerr << "error in allocPage call\n";
+            return (status);
+        }
+        // Take the Page* pointer returned from allocPage() and cast it to a FileHdrPage*
+        hdrPage = (FileHdrPage*) hdrPage;
+        // Using this pointer initialize the values in the header page
+        hdrPage->firstPage = 0;
+        hdrPage->lastPage = 0;
+        hdrPage->pageCnt = 0;
+        hdrPage->recCnt = 0;
+        // set the file name in the header page
+        strncpy(hdrPage->fileName, fileName.c_str(), MAXNAMESIZE);
+
+        // make a second call to bm->allocPage(), this page will be the first data page of the file
+        status = bufMgr->allocPage(file, newPageNo, newPage);
+        if (status != OK)
+        {
+            cerr << "error in allocPage call\n";
+            return (status);
+        }
+        // Using the Page* pointer returned,invoke its init() method to initialize the page contents
+        newPage->init();
+        // store the page number of the datapage in firstPage and lastPage attributes of the FileHdrPage.
+        hdrPage->firstPage = newPageNo;
+        hdrPage->lastPage = newPageNo;
+       
     }
     return (FILEEXISTS);
 }
@@ -51,17 +72,14 @@ HeapFile::HeapFile(const string & fileName, Status& returnStatus)
     // open the file and read in the header page and the first data page
     if ((status = db.openFile(fileName, filePtr)) == OK)
     {
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
+		//  call db->destroyFile() to destroy the file
+        status=db.destroyFile(fileName);
+        if (status != OK)
+        {
+            cerr << "error in destroyFile call\n";
+            returnStatus = status;
+            return;
+        }
     }
     else
     {
@@ -119,14 +137,30 @@ const Status HeapFile::getRecord(const RID & rid, Record & rec)
 {
     Status status;
 
-    // cout<< "getRecord. record (" << rid.pageNo << "." << rid.slotNo << ")" << endl;
-   
-   
-   
-   
-   
-   
-   
+    // If there is no currently pinned page or the pinned page is not the one we need,
+    // unpin the current page (if any), and read in the requested page.
+    if (curPage == NULL || curPageNo != rid.pageNo)
+    {
+        if (curPage != NULL)
+        {
+            status = bufMgr->unPinPage(filePtr, curPageNo, curDirtyFlag);
+            if (status != OK)
+                return status;
+        }
+        status = bufMgr->readPage(filePtr, rid.pageNo, curPage);
+        if (status != OK)
+            return status;
+        // Bookkeeping for the new page.
+        curPageNo = rid.pageNo;
+        curDirtyFlag = false;
+    }
+
+    // Set the record pointer bookkeeping field.
+    curRec = rid.slotNo;
+
+    // Retrieve the record from the current page.
+    status = curPage->getRecord(rid, rec);
+    return status;
 }
 
 HeapFileScan::HeapFileScan(const string & name,
